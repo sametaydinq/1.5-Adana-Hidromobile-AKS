@@ -21,7 +21,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "stdbool.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -79,10 +79,30 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
    }
 
 }
+
+
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+CAN_TxHeaderTypeDef TxTransmitter;   //can adı
+uint8_t voltage_result[5];   //can içerisindeki data boyutu
+uint32_t TxMailBox;       //can kutusu
+
+uint32_t adc_result[10];   //adc değerleri için kutu,
+									//sensor değerleri içinde kutu açılacak
+
+
+
+CAN_RxHeaderTypeDef Receiver;
+uint8_t Receiver_data[8];
+uint32_t sender_info[5];
+
+
+
+
+
 /* USER CODE END 0 */
 
 /**
@@ -118,11 +138,43 @@ int main(void)
   MX_ADC1_Init();
   /* USER CODE BEGIN 2 */
   HAL_ADC_Start_DMA(&hadc1,adcbuffer,6);
-  HAL_GPIO_WritePin(RELAY_MAIN_GPIO_Port, RELAY_MAIN_Pin, GPIO_PIN_SET);
-  //araç açılışta sürüş modunda olacak.
+  HAL_CAN_Start(&hcan);
 
-  //motor sürüş modunda açılacak
-  HAL_GPIO_WritePin()
+
+
+
+
+
+  //araç açılışta sürüş modunda olacak.
+  HAL_GPIO_WritePin(RELAY_MAIN_GPIO_Port, RELAY_MAIN_Pin, GPIO_PIN_RESET);
+
+
+  /*
+   Sürüş moduna geçmek için yapılması gerekenler:
+   BMS,Motor Sürücü,Telemetri açılacak. SMPS kapanacak.
+   Ana kontaktör kontrolünde P channel kullanılır. Lojik 0 verilirse, mosfet akım geçirir. Tesisatta kontaktöre 12V gider ve, kontaktör akım geçirir.
+   SSR röle ve SMPS Batarya kontaktörünü kapatmak için Lojik 1 verilir.
+   Motor sürücü kontaktöründen akım geçmesi için Lojik 0 verilmeli.
+  */
+  HAL_GPIO_WritePin(SIGN_BMS_GPIO_Port,SIGN_BMS_Pin, GPIO_PIN_SET);//Lojik 1 kapanır, Lojik 0 açılır
+  HAL_GPIO_WritePin(RELAY_ENGINE_12V_GPIO_Port,RELAY_ENGINE_12V_Pin, GPIO_PIN_SET);//Lojik 1 kapanır, Lojik 0 açılır
+  HAL_GPIO_WritePin(SIGN_Telemetry_GPIO_Port,SIGN_Telemetry_Pin, GPIO_PIN_SET);//Lojik 1 kapanır, Lojik 0 açılır---
+  HAL_GPIO_WritePin(SIGN_EYS_GPIO_Port,SIGN_EYS_Pin,GPIO_PIN_SET);
+  HAL_GPIO_WritePin(SIGN_SMPS_GPIO_Port,SIGN_SMPS_Pin, GPIO_PIN_SET);//Lojik 1 açılır, Lojik 0 kapanır
+  HAL_GPIO_WritePin(RELAY_MAIN_GPIO_Port,RELAY_MAIN_Pin, GPIO_PIN_RESET);//Lojik 1 kapanır, Lojik 0 açılır
+  HAL_GPIO_WritePin(RELAY_AC_IN_GPIO_Port,RELAY_AC_IN_Pin, GPIO_PIN_RESET);//Lojik 1 kapanır, Lojik 0 açılır
+  HAL_GPIO_WritePin(RELAY_SMPS_BAT_GPIO_Port,RELAY_SMPS_BAT_Pin, GPIO_PIN_RESET);//Lojik 1 kapanır, Lojik 0 açılır
+  HAL_Delay(1000);
+  HAL_GPIO_WritePin(RELAY_ENGINE_96V_GPIO_Port,RELAY_ENGINE_96V_Pin, GPIO_PIN_SET);//Lojik 1 kapanır, Lojik 0 açılır
+
+
+
+
+
+
+  TxTransmitter.StdId = 0x023;
+  TxTransmitter.DLC = 8;
+  TxTransmitter.IDE = CAN_ID_STD;
 
 
 
@@ -144,23 +196,137 @@ int main(void)
     /* USER CODE END WHILE */
 	  HAL_ADC_ConvCpltCallback(&hadc1);
 
-	  if(HAL_GPIO_ReadPin(IN_AC_DETECT_GPIO_Port,IN_AC_DETECT_Pin) == GPIO_PIN_SET){
-		  //BURASI ARAÇ SARJ MODU DURUMU
 
 
+	  /*
+	  if(HAL_GPIO_ReadPin(IN_AC_DETECT_GPIO_Port,IN_AC_DETECT_Pin) == GPIO_PIN_RESET){
+		  //BURASI ARAÇ sürüş MODU DURUMU
 
 
-	  }
+		  HAL_GPIO_WritePin(RELAY_SMPS_BAT_GPIO_Port,RELAY_SMPS_BAT_Pin, GPIO_PIN_RESET);//Lojik 1 kapanır, Lojik 0 açılır
+		  HAL_Delay(20);
+		  HAL_GPIO_WritePin(RELAY_AC_IN_GPIO_Port,RELAY_AC_IN_Pin, GPIO_PIN_RESET);//Lojik 1 kapanır, Lojik 0 açılır
+		  HAL_Delay(1000);
+		  HAL_GPIO_WritePin(SIGN_SMPS_GPIO_Port,SIGN_SMPS_Pin, GPIO_PIN_SET);//Lojik 1 açılır, Lojik 0 kapanır
+		  HAL_Delay(1000);
+		  HAL_GPIO_WritePin(RELAY_ENGINE_12V_GPIO_Port,RELAY_ENGINE_12V_Pin, GPIO_PIN_SET);//Lojik 1 kapanır, Lojik 0 açılır
+		  HAL_Delay(1000);
+		  HAL_GPIO_WritePin(RELAY_ENGINE_96V_GPIO_Port,RELAY_ENGINE_96V_Pin, GPIO_PIN_SET);//Lojik 1 akım geçirmez, Lojik 0 akım geçirir
+  		  HAL_Delay(20);
+		  HAL_GPIO_WritePin(RELAY_MAIN_GPIO_Port, RELAY_MAIN_Pin, GPIO_PIN_RESET);
+	  	  }
+
 	  else{
-		  //burası araç sürüş modu
+		  //burası şarj modu
 
+		  HAL_GPIO_WritePin(RELAY_ENGINE_12V_GPIO_Port,RELAY_ENGINE_12V_Pin, GPIO_PIN_RESET);//Lojik 1 kapanır, Lojik 0 açılır
+		  HAL_GPIO_WritePin(RELAY_ENGINE_96V_GPIO_Port,RELAY_ENGINE_96V_Pin, GPIO_PIN_RESET);//Lojik 1 akım geçirmez, Lojik 0 akım geçirir
+		  HAL_Delay(1000);
+		  HAL_GPIO_WritePin(RELAY_SMPS_BAT_GPIO_Port,RELAY_SMPS_BAT_Pin, GPIO_PIN_SET);//Lojik 1 kapanır, Lojik 0 açılır
+		  HAL_Delay(1000);
+		  HAL_GPIO_WritePin(RELAY_AC_IN_GPIO_Port,RELAY_AC_IN_Pin, GPIO_PIN_SET);//Lojik 1 kapanır, Lojik 0 açılır
+		  HAL_Delay(1000);
+		  HAL_GPIO_WritePin(SIGN_SMPS_GPIO_Port,SIGN_SMPS_Pin, GPIO_PIN_RESET);//Lojik 1 açılır, Lojik 0 kapanır
 
 
 	  }
 
+	  HAL_GPIO_WritePin(RELAY_MAIN_GPIO_Port, RELAY_MAIN_Pin, GPIO_PIN_RESET);
+	  */
+
+
+	  static bool prev_ac_status = false;
+	  	  const bool ac_status = HAL_GPIO_ReadPin(IN_AC_DETECT_GPIO_Port,IN_AC_DETECT_Pin) == GPIO_PIN_SET;
+
+	  	  if (ac_status != prev_ac_status) {  //eğer önceki durum ve şimdiki durum farklı olursa işleme girer
+	  		                                  //işlem seçeneği ise mevcut ac değerinin ne olduğuna göre yapılır
+	  		  prev_ac_status = ac_status;
+	  		  if(ac_status){
+				  //şarj modu
+	  			  HAL_GPIO_WritePin(RELAY_ENGINE_96V_GPIO_Port,RELAY_ENGINE_96V_Pin, GPIO_PIN_RESET);//Lojik 1 akım geçirmez, Lojik 0 akım geçirir
+	  			  HAL_Delay(500);
+	  			  HAL_GPIO_WritePin(SIGN_EYS_GPIO_Port,SIGN_EYS_Pin,GPIO_PIN_RESET);
+	  			  HAL_Delay(500);
+	  			  HAL_GPIO_WritePin(RELAY_ENGINE_12V_GPIO_Port,RELAY_ENGINE_12V_Pin, GPIO_PIN_RESET);//Lojik 1 kapanır, Lojik 0 açılır
+		  	  	  HAL_Delay(1000);
+		  	  	  HAL_GPIO_WritePin(RELAY_SMPS_BAT_GPIO_Port,RELAY_SMPS_BAT_Pin, GPIO_PIN_SET);//Lojik 1 kapanır, Lojik 0 açılır
+		  	  	  HAL_Delay(1000);
+		  	  	  HAL_GPIO_WritePin(RELAY_AC_IN_GPIO_Port,RELAY_AC_IN_Pin, GPIO_PIN_SET);//Lojik 1 kapanır, Lojik 0 açılır
+		  	  	  HAL_Delay(1000);
+		  	  	  HAL_GPIO_WritePin(SIGN_SMPS_GPIO_Port,SIGN_SMPS_Pin, GPIO_PIN_RESET);//Lojik 1 açılır, Lojik 0 kapanır
+	  			  }
+
+	  		  else{
+	  		  	  //sürüş modu
+	  			  HAL_GPIO_WritePin(RELAY_SMPS_BAT_GPIO_Port,RELAY_SMPS_BAT_Pin, GPIO_PIN_RESET);//Lojik 1 kapanır, Lojik 0 açılır
+		  	  	  HAL_Delay(20);
+		  	  	  HAL_GPIO_WritePin(RELAY_AC_IN_GPIO_Port,RELAY_AC_IN_Pin, GPIO_PIN_RESET);//Lojik 1 kapanır, Lojik 0 açılır
+		  	  	  HAL_Delay(1000);
+		  	  	  HAL_GPIO_WritePin(SIGN_SMPS_GPIO_Port,SIGN_SMPS_Pin, GPIO_PIN_SET);//Lojik 1 açılır, Lojik 0 kapanır
+		  	  	  HAL_Delay(1000);
+		  	  	  HAL_GPIO_WritePin(RELAY_ENGINE_12V_GPIO_Port,RELAY_ENGINE_12V_Pin, GPIO_PIN_SET);//Lojik 1 kapanır, Lojik 0 açılır
+		  	  	  HAL_Delay(1000);
+		  	  	  HAL_GPIO_WritePin(SIGN_EYS_GPIO_Port,SIGN_EYS_Pin,GPIO_PIN_SET);
+		  	  	  HAL_Delay(1000);
+		  	  	  HAL_GPIO_WritePin(RELAY_ENGINE_96V_GPIO_Port,RELAY_ENGINE_96V_Pin, GPIO_PIN_SET);//Lojik 1 akım geçirmez, Lojik 0 akım geçirir
+  		  	  	  HAL_Delay(20);
+		  	  	  HAL_GPIO_WritePin(RELAY_MAIN_GPIO_Port, RELAY_MAIN_Pin, GPIO_PIN_RESET);
+
+	  		  }
+	  	  }
 
 
 
+
+
+
+	  voltage_result[0] = Eys_Voltage;
+	  voltage_result[1] =Aks_Voltage;
+	  voltage_result[2] =Smps_Voltage;
+	  voltage_result[3] =Bms_Voltage;
+	  voltage_result[4] =Engine_Driver_Voltage;
+
+	  voltage_result[5] = 31;
+	  voltage_result[6] = 52;
+	  voltage_result[7] = 69;
+
+
+	  HAL_Delay(50);
+
+	  HAL_CAN_AddTxMessage(&hcan, &TxTransmitter, voltage_result , &TxMailBox);
+
+
+
+
+
+	  HAL_CAN_GetRxMessage(&hcan, CAN_RX_FIFO0, &Receiver, Receiver_data);
+
+	  sender_info[0] = Receiver.StdId;
+	  sender_info[1] = Receiver.ExtId;
+	  sender_info[2] = Receiver.IDE;
+	  sender_info[3] = Receiver.RTR;
+      sender_info[4] = Receiver.DLC;
+
+      /*
+      if(Receiver_data[0] == 54)
+      HAL_GPIO_WritePin(RELAY_MAIN_GPIO_Port, RELAY_MAIN_Pin, SET);
+      else
+          HAL_GPIO_WritePin(RELAY_MAIN_GPIO_Port, RELAY_MAIN_Pin, RESET);
+	  */
+
+      /*
+      if(Receiver_data[1] > 55)
+      HAL_GPIO_WritePin(SELENOID_VALF_GPIO_Port, SELENOID_VALF_Pin, SET);
+      else
+          HAL_GPIO_WritePin(SELENOID_VALF_GPIO_Port, SELENOID_VALF_Pin, RESET);
+
+
+      if(Receiver_data[2] == 65)
+    		 HAL_GPIO_WritePin(LIGHT_GPIO_Port, LIGHT_Pin, SET);
+      else
+		 HAL_GPIO_WritePin(LIGHT_GPIO_Port, LIGHT_Pin, RESET);
+
+	*/
 
 
 /*
@@ -335,11 +501,11 @@ static void MX_CAN_Init(void)
 
   /* USER CODE END CAN_Init 1 */
   hcan.Instance = CAN1;
-  hcan.Init.Prescaler = 16;
+  hcan.Init.Prescaler = 9;
   hcan.Init.Mode = CAN_MODE_NORMAL;
   hcan.Init.SyncJumpWidth = CAN_SJW_1TQ;
-  hcan.Init.TimeSeg1 = CAN_BS1_1TQ;
-  hcan.Init.TimeSeg2 = CAN_BS2_1TQ;
+  hcan.Init.TimeSeg1 = CAN_BS1_4TQ;
+  hcan.Init.TimeSeg2 = CAN_BS2_3TQ;
   hcan.Init.TimeTriggeredMode = DISABLE;
   hcan.Init.AutoBusOff = DISABLE;
   hcan.Init.AutoWakeUp = DISABLE;
@@ -351,6 +517,22 @@ static void MX_CAN_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN CAN_Init 2 */
+
+  CAN_FilterTypeDef can_filter_type;
+
+  can_filter_type.FilterBank = 13;
+  can_filter_type.FilterIdHigh = 0;
+		  can_filter_type.FilterIdLow = 0;
+		  can_filter_type.FilterMaskIdHigh = 0;
+		  can_filter_type.FilterMaskIdLow = 0;
+		  can_filter_type.FilterFIFOAssignment = CAN_RX_FIFO0;
+		  can_filter_type.FilterBank = 0;
+		  can_filter_type.FilterMode = CAN_FILTERMODE_IDMASK;
+		  can_filter_type.FilterScale = CAN_FILTERSCALE_32BIT;
+		  can_filter_type.FilterActivation = ENABLE;
+		  can_filter_type.SlaveStartFilterBank = 14;
+
+		  HAL_CAN_ConfigFilter(&hcan, &can_filter_type);
 
   /* USER CODE END CAN_Init 2 */
 
